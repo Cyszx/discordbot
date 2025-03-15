@@ -1208,13 +1208,20 @@ async def rename_ticket_slash(interaction: discord.Interaction, new_name: str):
     app_commands.Choice(name="Anime Royale", value="Anime Royale")
 ])
 async def upload_files(interaction: discord.Interaction, game: str, version: str, update_log: str, file: discord.Attachment, ping: bool = True):
+    # Check if the user is the specific user ID
+    if interaction.user.id != 1141849395902554202:
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+
     try:
         # Check if user has admin permission
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             return
-            
+
         await interaction.response.defer(ephemeral=True)
+
+        # Your existing code for handling the file upload would go here
         
         # Set repo and name based on game selection
         if game.lower() == "anime guardians":
