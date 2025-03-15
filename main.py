@@ -36,9 +36,13 @@ ticket_data = {}
 # Set up slash commands
 from discord import app_commands
 
+# Track bot start time
+bot.start_time = None
+
 # Setup hook to sync commands when the bot starts
 @bot.event
 async def setup_hook():
+    bot.start_time = datetime.datetime.utcnow()
     print("Syncing commands...")
     try:
         # Sync the commands with Discord, but only if needed
@@ -1199,7 +1203,11 @@ async def rename_ticket_slash(interaction: discord.Interaction, new_name: str):
                 await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
 @bot.tree.command(name="upload_files", description="Upload files to GitHub releases")
-async def upload_files(interaction: discord.Interaction, version: str, update_log: str, file: discord.Attachment, ping: bool = True):
+@app_commands.choices(game=[
+    app_commands.Choice(name="Anime Guardians", value="Anime Guardians"),
+    app_commands.Choice(name="Anime Royale", value="Anime Royale")
+])
+async def upload_files(interaction: discord.Interaction, game: str, version: str, update_log: str, file: discord.Attachment, ping: bool = True):
     try:
         # Check if user has admin permission
         if not interaction.user.guild_permissions.administrator:
@@ -1208,14 +1216,26 @@ async def upload_files(interaction: discord.Interaction, version: str, update_lo
             
         await interaction.response.defer(ephemeral=True)
         
-        release_name = f"Cys Anime Guardians V{version}"
+        # Set repo and name based on game selection
+        if game.lower() == "anime guardians":
+            repo_name = "AGMacro.github.io"
+            game_name = "Cys Anime Guardians"
+            website_url = "https://cyszx.github.io/AGMacro.github.io/"
+        elif game.lower() == "anime royale":
+            repo_name = "Anime-Royale-Macro"
+            game_name = "Cys Anime Royale"
+            website_url = "https://cyszx.github.io/AGMacro.github.io/"
+        else:
+            await interaction.followup.send("❌ Invalid game selection. Please choose 'Anime Guardians' or 'Anime Royale'", ephemeral=True)
+            return
+
+        release_name = f"{game_name} V{version}"
         headers = {
             "Authorization": f"token {os.getenv('GITHUB_TOKEN')}",
             "Accept": "application/vnd.github.v3+json"
         }
 
         repo_owner = "Cyszx"
-        repo_name = "AGMacro.github.io"
         file_content = await file.read()
 
         async with aiohttp.ClientSession() as session:
@@ -1224,7 +1244,11 @@ async def upload_files(interaction: discord.Interaction, version: str, update_lo
                 f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases",
                 headers=headers
             ) as response:
-                if response.status == 200:
+                # Handle case where repository doesn't exist yet
+                if response.status == 404:
+                    print(f"Repository {repo_name} not found - continuing with release creation")
+                    # Continue with creating the first release
+                elif response.status == 200:
                     releases = await response.json()
                     for release in releases:
                         async with session.delete(
@@ -1265,40 +1289,32 @@ async def upload_files(interaction: discord.Interaction, version: str, update_lo
                         data=file_content
                     ) as upload_response:
                         if upload_response.status == 201:
-                            await interaction.followup.send(f"✅ Successfully uploaded {file.filename} to release: {release_name}", ephemeral=True)
+                            # Send success message visible to everyone
+                            await interaction.channel.send(f"✅ Successfully uploaded {file.filename} to release: {release_name}")
+                            await interaction.followup.send("✅ Upload completed successfully!", ephemeral=True)
                             
-                            # Send download links automatically
+                            # Send website link only
                             embed = discord.Embed(
-                                title="📥 Download Links",
-                                description="Latest version and files can be found here:",
+                                title="📥 Download",
+                                description=f"[{game_name}]({website_url})",
                                 color=discord.Color.blue()
-                            )
-                            embed.add_field(
-                                name="Website",
-                                value="[Cys Anime Guardians](https://cyszx.github.io/AGMacro.github.io/)",
-                                inline=False
-                            )
-                            embed.add_field(
-                                name="Latest Release",
-                                value="[View on GitHub](https://github.com/Cyszx/AGMacro.github.io/releases/latest)",
-                                inline=False
                             )
                             await interaction.channel.send(embed=embed)
                             
                             # Send notification about new upload
                             notification_embed = discord.Embed(
                                 title="🆕 New Update Available!",
-                                description=f"A new version of Cys Anime Guardians has been released!\n\n**Version:** v{version}\n\n**Changelog:**\n{update_log}",
+                                description=f"A new version of {game_name} has been released!\n\n**Version:** v{version}\n\n**Changelog:**\n{update_log}",
                                 color=discord.Color.green()
                             )
                             notification_embed.add_field(
                                 name="Download",
-                                value="[Click here to download](https://cyszx.github.io/AGMacro.github.io/)",
+                                value=f"[Click here to download]({website_url})",
                                 inline=False
                             )
                             # Only send with content if ping is True
                             if ping:
-                                await interaction.channel.send(content="<@&1343353046774906981>", embed=notification_embed)
+                                await interaction.channel.send(content="<@&1338968714338504755>", embed=notification_embed)
                             else:
                                 await interaction.channel.send(embed=notification_embed)
                         else:
@@ -1310,23 +1326,66 @@ async def upload_files(interaction: discord.Interaction, version: str, update_lo
         await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
 @bot.tree.command(name="links", description="Get download links")
-async def links_slash(interaction: discord.Interaction):
+@app_commands.choices(game=[
+    app_commands.Choice(name="Anime Guardians", value="Anime Guardians"),
+    app_commands.Choice(name="Anime Royale", value="Anime Royale")
+])
+async def links_slash(interaction: discord.Interaction, game: str):
     """Send download links to the chat"""
+    game = game.lower()
+    if game not in ["anime guardians", "anime royale"]:
+        await interaction.response.send_message("❌ Please specify either 'Anime Guardians' or 'Anime Royale'", ephemeral=True)
+        return
+        
+    game_info = {
+        "anime guardians": {
+            "name": "Cys Anime Guardians",
+            "website": "https://cyszx.github.io/AGMacro.github.io/",
+            "github": "https://github.com/Cyszx/AGMacro.github.io/releases/latest"
+        },
+        "anime royale": {
+            "name": "Cys Anime Royale",
+            "website": "https://cyszx.github.io/ARMacro.github.io/",
+            "github": "https://github.com/Cyszx/ARMacro.github.io/releases/latest"
+        }
+    }
+    
+    info = game_info[game]
     embed = discord.Embed(
-        title="📥 Download Links",
+        title=f"📥 {info['name']} Download Links",
         description="Latest version and files can be found here:",
         color=discord.Color.blue()
     )
     embed.add_field(
-        name="Website",
-        value="[Cys Anime Guardians](https://cyszx.github.io/AGMacro.github.io/)",
+        name="Download",
+        value=f"[{info['name']}]({info['website']})",
         inline=False
     )
-    embed.add_field(
-        name="Latest Release",
-        value="[View on GitHub](https://github.com/Cyszx/AGMacro.github.io/releases/latest)",
-        inline=False
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="uptime", description="Show bot uptime")
+async def uptime_slash(interaction: discord.Interaction):
+    """Show the bot's uptime"""
+    if not bot.start_time:
+        await interaction.response.send_message("Bot start time not available.", ephemeral=True)
+        return
+        
+    current_time = datetime.datetime.utcnow()
+    delta = current_time - bot.start_time
+    
+    days = delta.days
+    hours, remainder = divmod(delta.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+    
+    embed = discord.Embed(
+        title="🕒 Bot Uptime",
+        description=f"Bot has been online for: **{uptime_str}**",
+        color=discord.Color.green()
     )
+    embed.set_footer(text=f"Started at: {bot.start_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="stats", description="Show ticket statistics")
