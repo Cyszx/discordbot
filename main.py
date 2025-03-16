@@ -276,7 +276,7 @@ class OpenTicketModal(discord.ui.Modal):
             # Send welcome message in the ticket channel
             try:
                 await ticket_channel.send(
-                    content=f"{interaction.user.mention} Staff will assist you shortly.",
+                    content=f"{interaction.user.mention} Staff will assist you shortly. <@&1350626942063218728>",
                     embed=embed,
                     view=ticket_controls
                 )
