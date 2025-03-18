@@ -8,8 +8,22 @@ import aiohttp
 import json
 from discord import TextStyle
 
-# Define modlogs channel ID
+# Define channel IDs
 MODLOGS_CHANNEL_ID = 1340864063659573248  # Channel for warnings, automod logs, and moderation actions
+welcome_channel_id = None  # Will be set via welcomeset command
+
+# Load welcome channel from file if it exists
+def load_welcome_channel():
+    try:
+        with open('welcome_channel.txt', 'r') as f:
+            return int(f.read().strip())
+    except:
+        return None
+
+# Save welcome channel to file
+def save_welcome_channel(channel_id):
+    with open('welcome_channel.txt', 'w') as f:
+        f.write(str(channel_id))
 
 # Define staff role check function
 def has_staff_role(member):
@@ -26,7 +40,32 @@ def has_staff_role(member):
      return False
 
 intents = discord.Intents.all()  # Use all intents to ensure everything works
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Function to get prefix
+async def get_prefix(bot, message):
+    # Default prefix if not set
+    if not hasattr(bot, 'custom_prefix'):
+        try:
+            with open('prefix.txt', 'r') as f:
+                bot.custom_prefix = f.read().strip()
+        except:
+            bot.custom_prefix = "!"
+    return commands.when_mentioned_or(bot.custom_prefix)(bot, message)
+
+bot = commands.Bot(command_prefix=get_prefix, intents=intents)
+
+# Load prefix if exists
+def load_prefix():
+    try:
+        with open('prefix.txt', 'r') as f:
+            return f.read().strip()
+    except:
+        return "!"
+
+# Save prefix
+def save_prefix(prefix):
+    with open('prefix.txt', 'w') as f:
+        f.write(prefix)
 
 # Dictionary to store ticket data for the session
 ticket_data = {}
@@ -53,8 +92,14 @@ async def setup_hook():
         raise e  # Re-raise to see full error
 
 # Basic slash command examples
+@bot.command(name="ping")
+async def ping(ctx):
+    """Check if the bot is alive (prefix command)"""
+    await ctx.send(f"Pong! Bot latency: {round(bot.latency * 1000)}ms")
+
 @bot.tree.command(name="ping", description="Check if the bot is alive")
 async def ping_command(interaction: discord.Interaction):
+    """Check if the bot is alive (slash command)"""
     await interaction.response.send_message(f"Pong! Bot latency: {round(bot.latency * 1000)}ms")
 
 @bot.tree.command(name="ticket", description="Create a ticket support panel")
@@ -127,8 +172,41 @@ def record_ticket_participation(user_id):
 ticket_stats = load_json(ticket_stats_file)
 
 @bot.event
+async def on_member_join(member):
+    """Sends welcome message when a new member joins"""
+    global welcome_channel_id
+
+    if welcome_channel_id:
+        channel = bot.get_channel(welcome_channel_id)
+        if channel:
+            embed = discord.Embed(
+                title="👋 Welcome!",
+                description=f"Welcome {member.mention} to {member.guild.name}!",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+            embed.set_footer(text=f"Member #{len(member.guild.members)}")
+            await channel.send(embed=embed)
+
+@bot.tree.command(name="welcomeset", description="Set the welcome message channel")
+async def welcomeset(interaction: discord.Interaction, channel: discord.TextChannel):
+    """Set the channel for welcome messages"""
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
+        return
+
+    global welcome_channel_id
+    welcome_channel_id = channel.id
+    save_welcome_channel(channel.id)
+
+    await interaction.response.send_message(f"✅ Welcome channel set to {channel.mention}", ephemeral=True)
+
+@bot.event
 async def on_ready():
      """Starts when bot is online and registers persistent views for ticket system"""
+     global welcome_channel_id
+     welcome_channel_id = load_welcome_channel()
+     bot.custom_prefix = load_prefix()
      print(f"Bot is online as {bot.user}")
 
      # Register persistent views for ticket system
@@ -153,11 +231,11 @@ async def on_ready():
 async def on_message(message):
      # Process commands first
      await bot.process_commands(message)
-     
+
      # Ignore messages from the bot itself
      if message.author.bot:
           return
-     
+
      # Check if the message is in a ticket channel
      if isinstance(message.channel, discord.TextChannel) and "ticket-" in message.channel.name:
           # Record message count for user
@@ -169,15 +247,15 @@ async def on_message(message):
                     "tickets_participated": 0,
                     "messages_sent": 0
                }
-          
+
           # Increment message count
           if "messages_sent" not in ticket_stats[user_id]:
                ticket_stats[user_id]["messages_sent"] = 0
           ticket_stats[user_id]["messages_sent"] += 1
-          
+
           # Save the updated stats
           save_json(ticket_stats, ticket_stats_file)
-          
+
           # Check if the user has the required roles and hasn't been recorded as participating yet
           if has_staff_role(message.author):
                # Record the user's participation (only once per ticket)
@@ -605,7 +683,7 @@ class TicketControlsView(discord.ui.View):
 
             # Extract the ticket creator's name from the original channel name
             ticket_creator = self.original_name.replace("ticket-", "") if self.original_name else "unknown"
-            
+
             # Rename the ticket to include both the claimed user and ticket creator
             new_ticket_name = f"{interaction.user.name}-{ticket_creator}"
             await self.ticket_channel.edit(name=new_ticket_name)
@@ -624,7 +702,8 @@ class TicketControlsView(discord.ui.View):
                 await self.ticket_channel.set_permissions(
                     mod_role, 
                     view_channel=True, 
-                    send_messages=True
+                    send_messages=True,
+                    read_messages=True
                 )
 
             # Disable the claim button
@@ -694,7 +773,7 @@ class TicketControlsView(discord.ui.View):
                 "❌ An error occurred. Please try again.",
                 ephemeral=True
             )
-            
+
     @discord.ui.button(
         label="Quick Close", 
         style=discord.ButtonStyle.secondary, 
@@ -719,7 +798,7 @@ class TicketControlsView(discord.ui.View):
 
             # Acknowledge the interaction first
             await interaction.response.defer(ephemeral=True)
-            
+
             # Update stats for the moderator
             user_id = str(interaction.user.id)
             if user_id not in ticket_stats:
@@ -730,7 +809,7 @@ class TicketControlsView(discord.ui.View):
                 }
             ticket_stats[user_id]["tickets_closed"] += 1
             save_json(ticket_stats, ticket_stats_file)
-            
+
             # Create close notification embed
             close_embed = discord.Embed(
                 title="Ticket Closed",
@@ -739,15 +818,15 @@ class TicketControlsView(discord.ui.View):
                 timestamp=datetime.datetime.now()
             )
             close_embed.set_footer(text="This ticket will be deleted shortly.")
-            
+
             await self.ticket_channel.send(embed=close_embed)
-            
+
             # Disable the buttons
             for child in self.children:
                 child.disabled = True
             if interaction.message:
                 await interaction.message.edit(view=self)
-                
+
             # Generate transcript
             file_name = None
             try:
@@ -783,7 +862,7 @@ class TicketControlsView(discord.ui.View):
             except Exception as e:
                 print(f"Error generating transcript: {e}")
                 file_name = None
-                
+
             # Send log to the ticket logs channel
             try:
                 log_channel = interaction.client.get_channel(1345810536457179136)  # Ticket logs channel
@@ -807,14 +886,14 @@ class TicketControlsView(discord.ui.View):
                         await log_channel.send(file=transcript_file)
             except Exception as e:
                 print(f"Error sending to log channel: {e}")
-                
+
             # Send confirmation to the moderator
             await interaction.followup.send("✅ Ticket is being closed...", ephemeral=True)
-            
-            # Wait a moment for people to read the close message
+
+            # 7. Wait a moment for people to read the close message
             await asyncio.sleep(3)
-            
-            # Delete the channel
+
+            # 8. Delete the channel
             try:
                 await self.ticket_channel.delete(reason=f"Ticket quick-closed by {interaction.user.name}")
                 print(f"Deleted ticket channel: {self.ticket_channel.name}")
@@ -824,19 +903,19 @@ class TicketControlsView(discord.ui.View):
                     "❌ Failed to delete the channel. It may need to be deleted manually.",
                     ephemeral=True
                 )
-                
-            # Clean up the transcript file
+
+            # 9. Clean up the transcript file
             if file_name:
                 try:
                     os.remove(file_name)
                 except Exception as e:
                     print(f"Error removing transcript file: {e}")
-                    
+
         except Exception as e:
             import traceback
             print(f"Unhandled error closing ticket: {e}")
             print(traceback.format_exc())
-            
+
             try:
                 await interaction.followup.send(
                     "❌ An error occurred while processing the ticket closure. Please try again.",
@@ -1079,7 +1158,7 @@ async def claim_ticket_slash(interaction: discord.Interaction):
     # Extract the ticket creator's name from the original channel name
     original_name = interaction.channel.name
     ticket_creator = original_name.replace("ticket-", "") if "ticket-" in original_name else "unknown"
-    
+
     # Rename the ticket to include both the claimed user and ticket creator
     new_ticket_name = f"{interaction.user.name}-{ticket_creator}"
     await interaction.channel.edit(name=new_ticket_name)
@@ -1102,8 +1181,8 @@ async def claim_ticket_slash(interaction: discord.Interaction):
 
 @bot.tree.command(name="rename", description="Rename a ticket channel")
 async def rename_ticket_slash(interaction: discord.Interaction, new_name: str):
-    # Check if in a ticket channel
-    if "ticket-" not in interaction.channel.name:
+    # Check if in a ticket channel (both unclaimed and claimed formats)
+    if not (interaction.channel.name.startswith("ticket-") or "-" in interaction.channel.name):
         await interaction.response.send_message("❌ This command can only be used in ticket channels.", ephemeral=True)
         return
 
@@ -1112,7 +1191,7 @@ async def rename_ticket_slash(interaction: discord.Interaction, new_name: str):
         await interaction.response.send_message("❌ You don't have permission to rename tickets.", ephemeral=True)
         return
 
-    # Format the new name to ensure it still has ticket- prefix
+    # Format the new name to ensure it still has ticket- prefix if it doesn't already
     if not new_name.startswith("ticket-"):
         new_name = f"ticket-{new_name}"
 
@@ -1205,7 +1284,8 @@ async def rename_ticket_slash(interaction: discord.Interaction, new_name: str):
 @bot.tree.command(name="upload_files", description="Upload files to GitHub releases")
 @app_commands.choices(game=[
     app_commands.Choice(name="Anime Guardians", value="Anime Guardians"),
-    app_commands.Choice(name="Anime Royale", value="Anime Royale")
+    app_commands.Choice(name="Anime Royale", value="Anime Royale"),
+    app_commands.Choice(name="Anime Last Stand", value="Anime Last Stand")
 ])
 async def upload_files(interaction: discord.Interaction, game: str, version: str, update_log: str, file: discord.Attachment, ping: bool = True):
     # Check if the user is the specific user ID
@@ -1222,7 +1302,7 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
         await interaction.response.defer(ephemeral=True)
 
         # Your existing code for handling the file upload would go here
-        
+
         # Set repo and name based on game selection
         if game.lower() == "anime guardians":
             repo_name = "AGMacro.github.io"
@@ -1232,8 +1312,12 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
             repo_name = "Anime-Royale-Macro"
             game_name = "Cys Anime Royale"
             website_url = "https://cyszx.github.io/AGMacro.github.io/"
+        elif game.lower() == "anime last stand":
+            repo_name = "ALS-Macro" # Added repo name for Anime Last Stand
+            game_name = "Cys Anime Last Stand" # Added game name for Anime Last Stand
+            website_url = "https://cyszx.github.io/ALS-Macro/" # Added website URL for Anime Last Stand
         else:
-            await interaction.followup.send("❌ Invalid game selection. Please choose 'Anime Guardians' or 'Anime Royale'", ephemeral=True)
+            await interaction.followup.send("❌ Invalid game selection. Please choose 'Anime Guardians' or 'Anime Royale' or 'Anime Last Stand'", ephemeral=True)
             return
 
         release_name = f"{game_name} V{version}"
@@ -1299,7 +1383,7 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
                             # Send success message visible to everyone
                             await interaction.channel.send(f"✅ Successfully uploaded {file.filename} to release: {release_name}")
                             await interaction.followup.send("✅ Upload completed successfully!", ephemeral=True)
-                            
+
                             # Send website link only
                             embed = discord.Embed(
                                 title="📥 Download",
@@ -1307,7 +1391,7 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
                                 color=discord.Color.blue()
                             )
                             await interaction.channel.send(embed=embed)
-                            
+
                             # Send notification about new upload
                             notification_embed = discord.Embed(
                                 title="🆕 New Update Available!",
@@ -1328,22 +1412,23 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
                             await interaction.followup.send(f"❌ Error uploading file: {await upload_response.text()}", ephemeral=True)
                 else:
                     await interaction.followup.send(f"❌ Error creating release: {await response.text()}", ephemeral=True)
-                    
+
     except Exception as e:
         await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
 @bot.tree.command(name="links", description="Get download links")
 @app_commands.choices(game=[
     app_commands.Choice(name="Anime Guardians", value="Anime Guardians"),
-    app_commands.Choice(name="Anime Royale", value="Anime Royale")
+    app_commands.Choice(name="Anime Royale", value="Anime Royale"),
+    app_commands.Choice(name="Anime Last Stand", value="Anime Last Stand")
 ])
 async def links_slash(interaction: discord.Interaction, game: str):
     """Send download links to the chat"""
     game = game.lower()
-    if game not in ["anime guardians", "anime royale"]:
-        await interaction.response.send_message("❌ Please specify either 'Anime Guardians' or 'Anime Royale'", ephemeral=True)
+    if game not in ["anime guardians", "anime royale", "anime last stand"]:
+        await interaction.response.send_message("❌ Please specify either 'Anime Guardians', 'Anime Royale', or 'Anime Last Stand'", ephemeral=True)
         return
-        
+
     game_info = {
         "anime guardians": {
             "name": "Cys Anime Guardians",
@@ -1354,9 +1439,14 @@ async def links_slash(interaction: discord.Interaction, game: str):
             "name": "Cys Anime Royale",
             "website": "https://cyszx.github.io/ARMacro.github.io/",
             "github": "https://github.com/Cyszx/ARMacro.github.io/releases/latest"
+        },
+        "anime last stand": { # Added info for Anime Last Stand
+            "name": "Cys Anime Last Stand",
+            "website": "https://cyszx.github.io/ALS-Macro/", # Added website URL for Anime Last Stand
+            "github": "https://github.com/Cyszx/ALS-Macro/releases/latest" # Added GitHub URL for Anime Last Stand
         }
     }
-    
+
     info = game_info[game]
     embed = discord.Embed(
         title=f"📥 {info['name']} Download Links",
@@ -1370,29 +1460,44 @@ async def links_slash(interaction: discord.Interaction, game: str):
     )
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="prefixset", description="Set the bot's command prefix")
+async def prefixset_slash(interaction: discord.Interaction, prefix: str):
+    """Set a new prefix for text commands"""
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need administrator permissions to change the prefix.", ephemeral=True)
+        return
+
+    if len(prefix) > 1:
+        await interaction.response.send_message("❌ Prefix must be a single character.", ephemeral=True)
+        return
+
+    bot.custom_prefix = prefix
+    save_prefix(prefix)
+    await interaction.response.send_message(f"✅ Command prefix set to: `{prefix}`")
+
 @bot.tree.command(name="uptime", description="Show bot uptime")
 async def uptime_slash(interaction: discord.Interaction):
     """Show the bot's uptime"""
     if not bot.start_time:
         await interaction.response.send_message("Bot start time not available.", ephemeral=True)
         return
-        
+
     current_time = datetime.datetime.utcnow()
     delta = current_time - bot.start_time
-    
+
     days = delta.days
     hours, remainder = divmod(delta.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    
+
     uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
-    
+
     embed = discord.Embed(
         title="🕒 Bot Uptime",
         description=f"Bot has been online for: **{uptime_str}**",
         color=discord.Color.green()
     )
     embed.set_footer(text=f"Started at: {bot.start_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    
+
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="stats", description="Show ticket statistics")
