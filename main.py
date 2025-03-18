@@ -1307,15 +1307,15 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
         if game.lower() == "anime guardians":
             repo_name = "AGMacro.github.io"
             game_name = "Cys Anime Guardians"
-            website_url = "https://cyszx.github.io/AGMacro.github.io/"
+            website_url = "https://cysmacros.netlify.app/"
         elif game.lower() == "anime royale":
             repo_name = "Anime-Royale-Macro"
             game_name = "Cys Anime Royale"
-            website_url = "https://cyszx.github.io/AGMacro.github.io/"
+            website_url = "https://cysmacros.netlify.app/"
         elif game.lower() == "anime last stand":
             repo_name = "ALS-Macro" # Added repo name for Anime Last Stand
             game_name = "Cys Anime Last Stand" # Added game name for Anime Last Stand
-            website_url = "https://cyszx.github.io/ALS-Macro/" # Added website URL for Anime Last Stand
+            website_url = "https://cysmacros.netlify.app/" # Added website URL for Anime Last Stand
         else:
             await interaction.followup.send("❌ Invalid game selection. Please choose 'Anime Guardians' or 'Anime Royale' or 'Anime Last Stand'", ephemeral=True)
             return
