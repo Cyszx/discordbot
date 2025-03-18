@@ -1313,9 +1313,9 @@ async def upload_files(interaction: discord.Interaction, game: str, version: str
             game_name = "Cys Anime Royale"
             website_url = "https://cysmacros.netlify.app/"
         elif game.lower() == "anime last stand":
-            repo_name = "ALS-Macro" # Added repo name for Anime Last Stand
-            game_name = "Cys Anime Last Stand" # Added game name for Anime Last Stand
-            website_url = "https://cysmacros.netlify.app/" # Added website URL for Anime Last Stand
+            repo_name = "AnimeLastStand"
+            game_name = "Cys Anime Last Stand"
+            website_url = "https://cysmacros.netlify.app/"
         else:
             await interaction.followup.send("❌ Invalid game selection. Please choose 'Anime Guardians' or 'Anime Royale' or 'Anime Last Stand'", ephemeral=True)
             return
@@ -1440,10 +1440,10 @@ async def links_slash(interaction: discord.Interaction, game: str):
             "website": "https://cyszx.github.io/ARMacro.github.io/",
             "github": "https://github.com/Cyszx/ARMacro.github.io/releases/latest"
         },
-        "anime last stand": { # Added info for Anime Last Stand
+        "anime last stand": {
             "name": "Cys Anime Last Stand",
-            "website": "https://cyszx.github.io/ALS-Macro/", # Added website URL for Anime Last Stand
-            "github": "https://github.com/Cyszx/ALS-Macro/releases/latest" # Added GitHub URL for Anime Last Stand
+            "website": "https://cyszx.github.io/ALS-Macro/",
+            "github": "https://github.com/Cyszx/ALS-Macro/releases/latest"
         }
     }
 
