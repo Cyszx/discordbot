@@ -1,8 +1,11 @@
 import discord
 from discord.ext import commands
+from discord import DeletedReferencedMessage, app_commands
 import asyncio
 import os
 import datetime
+import sys
+import traceback
 # import collections
 import aiohttp
 import json
@@ -65,7 +68,60 @@ async def get_prefix(bot, message):
 
 bot = commands.Bot(command_prefix=get_prefix, intents=intents)
 
+def staff_check():
+    async def predicate(interaction: discord.Interaction):
+        if not has_staff_role(interaction.user):
+            await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+            return False
+        return True
+    return app_commands.check(predicate)
+
+@bot.tree.command(name="help", description="Shows all available commands")
+async def help_command(interaction: discord.Interaction):
+    """Shows all available commands"""
+    is_staff = has_staff_role(interaction.user)
+    is_admin = interaction.user.guild_permissions.administrator
+
+    embed = discord.Embed(
+        title="📚 Command Help",
+        description="Here are all available commands:",
+        color=discord.Color.blue()
+    )
+
+    # General commands
+    general_cmds = [
+        ("/ticket", "Create a support ticket"),
+        ("/help", "Show this help message"),
+        ("/ping", "Check bot latency"),
+        ("/links", "Get download links for Cys macros")
+    ]
+    embed.add_field(name="General Commands", value="\n".join(f"`{cmd}` - {desc}" for cmd, desc in general_cmds), inline=False)
+
+    # Staff commands
+    if is_staff:
+        staff_cmds = [
+            ("/claim", "Claim a ticket"),
+            ("/close", "Close a ticket with reason"),
+            ("/rename", "Rename a ticket channel"),
+            ("/stats", "View ticket statistics")
+        ]
+        embed.add_field(name="Staff Commands", value="\n".join(f"`{cmd}` - {desc}" for cmd, desc in staff_cmds), inline=False)
+
+    # Admin commands
+    if is_admin:
+        admin_cmds = [
+            ("/addstaffrole", "Add a staff role"),
+            ("/removestaffrole", "Remove a staff role"),
+            ("/liststaffroles", "List all staff roles"),
+            ("/prefixset", "Set bot prefix"),
+            ("/welcomeset", "Set welcome channel")
+        ]
+        embed.add_field(name="Admin Commands", value="\n".join(f"`{cmd}` - {desc}" for cmd, desc in admin_cmds), inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @bot.tree.command(name="addstaffrole", description="Add a role to the ticket staff list")
+@app_commands.checks.has_permissions(administrator=True)
 async def addstaffrole(interaction: discord.Interaction, role: discord.Role):
     """Add a role to the list of staff roles for ticket management"""
     if not interaction.user.guild_permissions.administrator:
@@ -73,7 +129,7 @@ async def addstaffrole(interaction: discord.Interaction, role: discord.Role):
         return
 
     staff_role_ids, staff_role_names = load_staff_roles()
-    
+
     if role.id in staff_role_ids:
         await interaction.response.send_message(f"❌ Role {role.mention} is already in the staff list.", ephemeral=True)
         return
@@ -81,7 +137,7 @@ async def addstaffrole(interaction: discord.Interaction, role: discord.Role):
     staff_role_ids.append(role.id)
     if role.name not in staff_role_names:
         staff_role_names.append(role.name)
-    
+
     save_staff_roles(staff_role_ids, staff_role_names)
     await interaction.response.send_message(f"✅ Added {role.mention} to ticket staff roles.", ephemeral=True)
 
@@ -93,7 +149,7 @@ async def removestaffrole(interaction: discord.Interaction, role: discord.Role):
         return
 
     staff_role_ids, staff_role_names = load_staff_roles()
-    
+
     if role.id not in staff_role_ids:
         await interaction.response.send_message(f"❌ Role {role.mention} is not in the staff list.", ephemeral=True)
         return
@@ -101,7 +157,7 @@ async def removestaffrole(interaction: discord.Interaction, role: discord.Role):
     staff_role_ids.remove(role.id)
     if role.name in staff_role_names:
         staff_role_names.remove(role.name)
-    
+
     save_staff_roles(staff_role_ids, staff_role_names)
     await interaction.response.send_message(f"✅ Removed {role.mention} from ticket staff roles.", ephemeral=True)
 
@@ -113,7 +169,7 @@ async def liststaffroles(interaction: discord.Interaction):
         return
 
     staff_role_ids, staff_role_names = load_staff_roles()
-    
+
     embed = discord.Embed(
         title="🎫 Ticket Staff Roles",
         description="These roles have permission to manage tickets:",
@@ -125,7 +181,7 @@ async def liststaffroles(interaction: discord.Interaction):
         role = interaction.guild.get_role(role_id)
         if role:
             roles_text += f"{role.mention} (ID: {role.id})\n"
-    
+
     if roles_text:
         embed.add_field(name="Roles", value=roles_text, inline=False)
     else:
@@ -269,6 +325,13 @@ ticket_stats = load_json(ticket_stats_file)
 async def on_member_join(member):
     """Sends welcome message when a new member joins"""
     global welcome_channel_id
+    
+    # Load welcome channel from file
+    try:
+        with open('welcome_channel.txt', 'r') as f:
+            welcome_channel_id = int(f.read().strip())
+    except:
+        return
 
     if welcome_channel_id:
         channel = bot.get_channel(welcome_channel_id)
@@ -282,6 +345,35 @@ async def on_member_join(member):
             embed.set_footer(text=f"Member #{len(member.guild.members)}")
             await channel.send(embed=embed)
 
+@bot.command(name="r")
+async def role(ctx, member: discord.Member, *, role: str):
+    """Add a role to a member using role name or ID"""
+    if not ctx.author.guild_permissions.manage_roles:
+        await ctx.send("No permission to manage roles.")
+        await asyncio.sleep(3)  # Wait for 3 seconds before deleting the command message
+        await ctx.message.delete()  # Delete the command message after 3 seconds
+        return
+
+    # Try to find role by ID first
+    try:
+        role_id = int(role)
+        role_obj = discord.utils.get(ctx.guild.roles, id=role_id)
+    except ValueError:
+        # If not an ID, search by name
+        role_obj = discord.utils.get(ctx.guild.roles, name=role)
+
+    if not role_obj:
+        await ctx.send(f"❌ Role '{role}' not found.")
+        return
+
+    try:
+        await member.add_roles(role_obj)
+        await ctx.send(f"✅ Added role {role_obj.name} to {member.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Error adding role: {str(e)}")
+
+
+
 @bot.tree.command(name="welcomeset", description="Set the welcome message channel")
 async def welcomeset(interaction: discord.Interaction, channel: discord.TextChannel):
     """Set the channel for welcome messages"""
@@ -294,6 +386,36 @@ async def welcomeset(interaction: discord.Interaction, channel: discord.TextChan
     save_welcome_channel(channel.id)
 
     await interaction.response.send_message(f"✅ Welcome channel set to {channel.mention}", ephemeral=True)
+
+@bot.event
+async def on_error(event, *args, **kwargs):
+    """Handle any unhandled exceptions"""
+    error = sys.exc_info()
+    # Log the error
+    print(f"Unhandled error in {event}:", file=sys.stderr)
+    traceback.print_exception(*error)
+
+@bot.tree.error
+async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Handle command errors"""
+    if isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(
+            f"This command is on cooldown. Try again in {error.retry_after:.2f}s",
+            ephemeral=True
+        )
+    elif isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message(
+            "❌ You don't have permission to use this command.",
+            ephemeral=True
+        )
+    else:
+        # Log unexpected errors
+        print(f"Command error in {interaction.command.name}:", file=sys.stderr)
+        traceback.print_exception(type(error), error, error.__traceback__)
+        await interaction.response.send_message(
+            "❌ An unexpected error occurred. Please try again later.",
+            ephemeral=True
+        )
 
 @bot.event
 async def on_ready():
@@ -1595,10 +1717,21 @@ async def uptime_slash(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="stats", description="Show ticket statistics")
-async def stats_slash(interaction: discord.Interaction):
+@app_commands.describe(role_id="Optional role ID to filter stats by")
+async def stats_slash(interaction: discord.Interaction, role_id: str = None):
     # Check if user has admin permission or is staff
     if not (interaction.user.guild_permissions.administrator or has_staff_role(interaction.user)):
         await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+        
+    try:
+        if role_id:
+            role = interaction.guild.get_role(int(role_id))
+            if not role:
+                await interaction.response.send_message("❌ Role not found.", ephemeral=True)
+                return
+    except ValueError:
+        await interaction.response.send_message("❌ Invalid role ID format.", ephemeral=True)
         return
 
     # Reload the stats from the JSON file to ensure we have the latest data
@@ -1663,10 +1796,19 @@ async def stats_slash(interaction: discord.Interaction):
                 "closed": 0
             })
 
+    # Filter users by role if specified
+    if role_id:
+        all_users_data = [user for user in all_users_data 
+                         if str(role.id) in [str(r.id) for r in member_map[user['id']].roles]
+                         if user['id'] in member_map]
+
+    # Sort users by claimed tickets (descending)
+    all_users_data.sort(key=lambda x: (x['claimed'], x['participated']), reverse=True)
+
     # Create embeds with stats
     embeds = []
     current_embed = discord.Embed(
-        title="📊 Ticket Statistics for ALL Members",
+        title=f"📊 Ticket Statistics for {role.name if role_id else 'ALL Members'}",
         description="This shows how many tickets each member has participated in, claimed, or closed.",
         color=discord.Color.blue()
     )
