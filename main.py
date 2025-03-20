@@ -36,7 +36,7 @@ def load_staff_roles():
             return data.get('ids', []), data.get('names', [])
     except:
         # Default roles if file doesn't exist
-        return [1338965114262392852, 1340726272908726433], ["Moderator", "Co-Owner", "Owner", "Admin", "Trial Helper", "Helper"]
+        return [1338965114262392852, 1340726272908726433, 1345934307054846013, 1345934077307392000], ["Moderator", "Co-Owner", "Owner", "Admin", "Trial Helper", "Helper"]
 
 # Save staff roles to file
 def save_staff_roles(role_ids, role_names):
@@ -544,14 +544,21 @@ class OpenTicketModal(discord.ui.Modal):
                     read_messages=True
                 )
 
-                # Give access to moderator role
-                mod_role = discord.utils.get(interaction.guild.roles, id=1340726272908726433)
-                if mod_role:
-                    await ticket_channel.set_permissions(mod_role, 
-                        view_channel=True,
-                        send_messages=True,
-                        read_messages=True
-                    )
+                # Give access to staff roles
+                staff_roles = [
+                    1340726272908726433,  # Moderator
+                    1350626942063218728,  # Trial Helper
+                    1345934307054846013   # Helper
+                ]
+                
+                for role_id in staff_roles:
+                    role = discord.utils.get(interaction.guild.roles, id=role_id)
+                    if role:
+                        await ticket_channel.set_permissions(role, 
+                            view_channel=True,
+                            send_messages=True,
+                            read_messages=True
+                        )
             except Exception as e:
                 print(f"Failed to set permissions: {e}")
 
