@@ -25,19 +25,99 @@ def save_welcome_channel(channel_id):
     with open('welcome_channel.txt', 'w') as f:
         f.write(str(channel_id))
 
+# Load staff roles from file
+def load_staff_roles():
+    try:
+        with open('staff_roles.json', 'r') as f:
+            data = json.load(f)
+            return data.get('ids', []), data.get('names', [])
+    except:
+        # Default roles if file doesn't exist
+        return [1338965114262392852, 1340726272908726433], ["Moderator", "Co-Owner", "Owner", "Admin", "Trial Helper", "Helper"]
+
+# Save staff roles to file
+def save_staff_roles(role_ids, role_names):
+    with open('staff_roles.json', 'w') as f:
+        json.dump({'ids': role_ids, 'names': role_names}, f, indent=4)
+
 # Define staff role check function
 def has_staff_role(member):
-     # Check by role ID first
-     staff_role_ids = [1338965114262392852, 1340726272908726433]  # Staff role IDs
-
-     # Also check by role name for redundancy
-     staff_role_names = ["Moderator", "Co-Owner", "Owner", "Admin", "Trial Helper", "Helper"]
+     # Load current staff roles
+     staff_role_ids, staff_role_names = load_staff_roles()
 
      # Return True if the member has any of the specified roles (by ID or name)
      for role in member.roles:
           if role.id in staff_role_ids or role.name in staff_role_names:
                return True
      return False
+
+@bot.tree.command(name="addstaffrole", description="Add a role to the ticket staff list")
+async def addstaffrole(interaction: discord.Interaction, role: discord.Role):
+    """Add a role to the list of staff roles for ticket management"""
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need administrator permissions to manage staff roles.", ephemeral=True)
+        return
+
+    staff_role_ids, staff_role_names = load_staff_roles()
+    
+    if role.id in staff_role_ids:
+        await interaction.response.send_message(f"❌ Role {role.mention} is already in the staff list.", ephemeral=True)
+        return
+
+    staff_role_ids.append(role.id)
+    if role.name not in staff_role_names:
+        staff_role_names.append(role.name)
+    
+    save_staff_roles(staff_role_ids, staff_role_names)
+    await interaction.response.send_message(f"✅ Added {role.mention} to ticket staff roles.", ephemeral=True)
+
+@bot.tree.command(name="removestaffrole", description="Remove a role from the ticket staff list")
+async def removestaffrole(interaction: discord.Interaction, role: discord.Role):
+    """Remove a role from the list of staff roles for ticket management"""
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need administrator permissions to manage staff roles.", ephemeral=True)
+        return
+
+    staff_role_ids, staff_role_names = load_staff_roles()
+    
+    if role.id not in staff_role_ids:
+        await interaction.response.send_message(f"❌ Role {role.mention} is not in the staff list.", ephemeral=True)
+        return
+
+    staff_role_ids.remove(role.id)
+    if role.name in staff_role_names:
+        staff_role_names.remove(role.name)
+    
+    save_staff_roles(staff_role_ids, staff_role_names)
+    await interaction.response.send_message(f"✅ Removed {role.mention} from ticket staff roles.", ephemeral=True)
+
+@bot.tree.command(name="liststaffroles", description="List all ticket staff roles")
+async def liststaffroles(interaction: discord.Interaction):
+    """List all roles that have ticket staff permissions"""
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need administrator permissions to view staff roles.", ephemeral=True)
+        return
+
+    staff_role_ids, staff_role_names = load_staff_roles()
+    
+    embed = discord.Embed(
+        title="🎫 Ticket Staff Roles",
+        description="These roles have permission to manage tickets:",
+        color=discord.Color.blue()
+    )
+
+    roles_text = ""
+    for role_id in staff_role_ids:
+        role = interaction.guild.get_role(role_id)
+        if role:
+            roles_text += f"{role.mention} (ID: {role.id})\n"
+    
+    if roles_text:
+        embed.add_field(name="Roles", value=roles_text, inline=False)
+    else:
+        embed.add_field(name="Roles", value="No roles configured", inline=False)
+
+    await interaction.response.send_message(embed=embed)
 
 intents = discord.Intents.all()  # Use all intents to ensure everything works
 
