@@ -51,6 +51,20 @@ def has_staff_role(member):
                return True
      return False
 
+# Initialize bot with intents
+intents = discord.Intents.all()
+
+async def get_prefix(bot, message):
+    if not hasattr(bot, 'custom_prefix'):
+        try:
+            with open('prefix.txt', 'r') as f:
+                bot.custom_prefix = f.read().strip()
+        except:
+            bot.custom_prefix = "!"
+    return commands.when_mentioned_or(bot.custom_prefix)(bot, message)
+
+bot = commands.Bot(command_prefix=get_prefix, intents=intents)
+
 @bot.tree.command(name="addstaffrole", description="Add a role to the ticket staff list")
 async def addstaffrole(interaction: discord.Interaction, role: discord.Role):
     """Add a role to the list of staff roles for ticket management"""
@@ -375,10 +389,10 @@ class OpenTicketModal(discord.ui.Modal):
             await interaction.response.defer(ephemeral=True)
 
             # Find or create Tickets category
-            category = discord.utils.get(interaction.guild.categories, name="Tickets")
+            category = discord.utils.get(interaction.guild.categories, name="『🎫』Tickets")
             if category is None:
                 try:
-                    category = await interaction.guild.create_category("Tickets")
+                    category = await interaction.guild.create_category("『🎫』Tickets")
                 except Exception as e:
                     print(f"Failed to create category: {e}")
                     await interaction.followup.send(f"Error creating ticket category: {str(e)}", ephemeral=True)
